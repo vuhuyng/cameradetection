@@ -108,11 +108,69 @@ def display_face_recognition():
     detected_names = {}
     attendance_data = []
 
+    # Attempt to open the camera
     camera = cv2.VideoCapture(0)
 
     if not camera.isOpened():
-        st.error("Cannot access the camera!")
+        st.error("Cannot access the camera! Please check if your camera is connected and try again.")
         return
+
+    while True:
+        ret, frame = camera.read()
+        if not ret:
+            st.error("Cannot read from the camera! Please check if your camera is working correctly.")
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        face_coordinates = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
+
+        if len(face_coordinates) == 0:
+            st.write("No faces detected.")
+        else:
+            st.write(f"Faces detected: {face_coordinates}")
+
+        for (x, y, w, h) in face_coordinates:
+            face = frame[y:y + h, x:x + w, :]
+            resized_face = cv2.resize(face, (50, 50)).flatten().reshape(1, -1)
+
+            if faces.shape[0] > 0:
+                name = knn.predict(resized_face)[0]
+
+                bbox_color = (0, 255, 255) if name not in detected_names else (255, 0, 255)
+                draw_ai_tech_bbox(frame, x, y, w, h, bbox_color, 3)
+
+                label = f"{name} - {'New' if name not in detected_names else 'Checked'}"
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                if name not in detected_names:
+                    # Save attendance data immediately and update last saved timestamp
+                    attendance_data.append([name, timestamp])
+                    detected_names[name] = timestamp
+                    save_attendance_to_csv(attendance_data)
+                else:
+                    # Check if the time since last saved entry is more than a threshold
+                    last_saved_timestamp = datetime.datetime.strptime(detected_names[name], "%Y-%m-%d %H:%M:%S")
+                    current_timestamp = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+
+                    if (current_timestamp - last_saved_timestamp).seconds > 60:  # 1 minute threshold
+                        # Update timestamp for existing detection
+                        attendance_data = [entry for entry in attendance_data if entry[0] != name]
+                        attendance_data.append([name, timestamp])
+                        detected_names[name] = timestamp
+                        # Re-save with updated timestamps
+                        save_attendance_to_csv(attendance_data)
+
+        stframe.image(frame, channels="BGR")
+
+        # Break the loop if the user presses the 'ESC' key
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+
+    camera.release()
+
 
     while True:
         ret, frame = camera.read()
