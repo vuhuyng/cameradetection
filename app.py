@@ -9,7 +9,6 @@ import os
 import io
 import pandas as pd
 import datetime
-import base64
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 
@@ -102,28 +101,6 @@ def draw_ai_tech_bbox(frame, x, y, w, h, color=(0, 255, 0), thickness=2):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, glow_color, 1)
     cv2.putText(frame, "Status: Processing", (x + w + 10, y + 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, glow_color, 1)
-
-
-def display_face_recognition():
-    st.header("Realtime Face Recognition")
-
-    faces, labels = load_data()
-
-    if faces.size == 0 or len(labels) == 0:
-        st.error("No data available for training!")
-        return
-
-    if faces.shape[0] < 1:
-        st.error("Insufficient training data!")
-        return
-
-    knn = train_knn(faces, labels)
-    stframe = st.empty()
-
-    detected_names = {}
-    attendance_data = []
-
-    from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 
 class FaceDetectionTransformer(VideoTransformerBase):
@@ -233,131 +210,41 @@ def admin_mode():
         "Collect Data from Camera", "Upload Multiple Images", "Export Attendance", "View Attendance"])
 
     if action == "Collect Data from Camera":
-        name = st.text_input("Enter your name:")
-        if st.button("Start Data Collection"):
-            if name:
-                st.write("Collecting data from camera...")
-                face_data = collect_data_from_camera()
-
-                if face_data.size == 0:
-                    st.error("No face data collected!")
-                    return
-
-                faces, labels = load_data()
-
-                if faces.size == 0:
-                    faces = face_data
-                    labels = [name] * face_data.shape[0]
-                else:
-                    if face_data.shape[1] == faces.shape[1]:
-                        faces = np.vstack([faces, face_data])
-                        labels += [name] * face_data.shape[0]
-                    else:
-                        st.error("Face data dimensions do not match!")
-                        return
-                save_face_data(faces, labels)
-                st.success("Data collection completed and saved!")
-            else:
-                st.error("Please enter your name before starting data collection.")
-
+        st.write("Collecting face data from camera...")
+        collect_data_from_camera()
     elif action == "Upload Multiple Images":
-        uploaded_files = st.file_uploader(
-            "Choose images", accept_multiple_files=True, type=['jpg', 'png', 'jpeg'])
-        name = st.text_input("Enter your name:")
-
-        if st.button("Upload Images"):
-            if uploaded_files:
-                # Initialize faces and labels
-                faces, labels = load_data()
-
-                if faces.size == 0:
-                    # If no existing face data, initialize empty list
-                    faces = np.empty((0, 2500))  # Adjust size if needed
-                face_data_list = []
-
-                for uploaded_file in uploaded_files:
-                    image_data = io.BytesIO(uploaded_file.read())
-                    face_data, _ = load_data_from_images(image_data)
-
-                    # Ensure that face data dimensions match
-                    if faces.size == 0 or face_data.shape[1] == faces.shape[1]:
-                        face_data_list.append(face_data)
-                    else:
-                        st.error(
-                            "Face data dimensions from uploaded images do not match!")
-                        return
-
-                if face_data_list:
-                    face_data = np.vstack(face_data_list)
-
-                    if name:
-                        if face_data.size == 0:
-                            st.error("No face data found in uploaded images!")
-                            return
-
-                        if faces.size == 0:
-                            faces = face_data
-                            labels = [name] * face_data.shape[0]
-                        else:
-                            if face_data.shape[1] == faces.shape[1]:
-                                faces = np.vstack([faces, face_data])
-                                labels += [name] * face_data.shape[0]
-                            else:
-                                st.error("Face data dimensions do not match!")
-                                return
-                        save_face_data(faces, labels)
-                        st.success(
-                            f"Successfully uploaded {len(uploaded_files)} images for {name}")
-                    else:
-                        st.error("Please enter your name.")
-            else:
-                st.error("Please upload some images.")
-
+        st.write("Uploading and processing images...")
+        uploaded_files = st.file_uploader("Choose image files", type=[
+                                          "jpg", "jpeg", "png"], accept_multiple_files=True)
+        if uploaded_files:
+            images = [Image.open(uploaded_file)
+                      for uploaded_file in uploaded_files]
+            faces, labels = load_data_from_images(images)
+            save_face_data(faces, labels)
     elif action == "Export Attendance":
-        csv_file_path = os.path.join(os.getcwd(), 'attendance.csv')
-        if os.path.exists(csv_file_path):
-            with open(csv_file_path, 'rb') as f:
-                st.download_button(
-                    label='Download Attendance CSV',
-                    data=f.read(),
-                    file_name='attendance.csv',
-                    mime='text/csv'
-                )
-        else:
-            st.warning("Attendance file not found!")
-
+        st.write("Exporting attendance data...")
+        view_attendance()
     elif action == "View Attendance":
-        if 'logged_in' in st.session_state and st.session_state['logged_in']:
-            view_attendance()
-        else:
-            st.warning("Please log in first!")
+        st.write("Viewing attendance data...")
+        view_attendance()
 
 
 def main():
+    st.title("Face Recognition System")
 
-    st.title("Face Recognition Attendance System (Nguyen Vu Huy)")
-
-    option = st.sidebar.selectbox(
-        "Select an option:", ["Face Recognition", "Admin Login"])
-
-    if option == "Face Recognition":
-        display_face_recognition()
-
-    elif option == "Admin Login":
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-
-        if st.button("Login"):
-            if check_login(username, password):
-                st.session_state.logged_in = True
-                st.success("Logged in successfully!")
-            else:
-                st.error("Invalid credentials")
-
-    if st.session_state.get('logged_in', False):
-        admin_mode()
-    else:
-        st.write("Please log in as an admin to access admin functionalities.")
+    if st.sidebar.checkbox("Login"):
+        username = st.sidebar.text_input("Username")
+        password = st.sidebar.text_input("Password", type="password")
+        if check_login(username, password):
+            st.sidebar.success("Logged in successfully")
+            action = st.sidebar.radio("Choose an action:", [
+                                      "Face Recognition", "Admin Panel"])
+            if action == "Face Recognition":
+                display_face_recognition()
+            elif action == "Admin Panel":
+                admin_mode()
+        else:
+            st.sidebar.error("Invalid username or password")
 
 
 if __name__ == "__main__":
