@@ -11,36 +11,7 @@ import pandas as pd
 import datetime
 import base64
 
-# Path to the background image
-image_path = r"C:\Users\huy\Downloads\hinh-nen-cong-nghe-2k_103227821.png"
 
-# Encode image as base64
-
-
-def load_image(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode()
-
-
-image_data = load_image(image_path)
-
-# Custom CSS to set the background image
-
-
-def set_background_image():
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/jpeg;base64,{image_data}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
 
 # Streamlit app functions
 
@@ -342,7 +313,7 @@ def admin_mode():
 
 
 def main():
-    set_background_image()  # Set the background image
+
     st.title("Face Recognition Attendance System (Nguyen Vu Huy)")
 
     option = st.sidebar.selectbox(
