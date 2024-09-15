@@ -4,3 +4,4 @@ numpy
 Pillow
 pickle-mixin
 scikit-learn
+streamlit_webrtc 
