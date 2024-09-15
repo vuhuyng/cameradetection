@@ -112,10 +112,8 @@ class FaceDetectionTransformer(VideoTransformerBase):
         self.attendance_data = attendance_data
 
     def transform(self, frame):
-        # Chuyển đổi frame thành mảng NumPy
         frame = frame.to_ndarray(format="bgr24")
 
-        # Xử lý nhận diện khuôn mặt
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         facecascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -148,7 +146,7 @@ class FaceDetectionTransformer(VideoTransformerBase):
                     current_timestamp = datetime.datetime.strptime(
                         timestamp, "%Y-%m-%d %H:%M:%S")
 
-                    if (current_timestamp - last_saved_timestamp).seconds > 60:  # 1 minute threshold
+                    if (current_timestamp - last_saved_timestamp).seconds > 60:
                         self.attendance_data = [
                             entry for entry in self.attendance_data if entry[0] != name]
                         self.attendance_data.append([name, timestamp])
@@ -161,7 +159,6 @@ class FaceDetectionTransformer(VideoTransformerBase):
 def display_face_recognition():
     st.header("Realtime Face Recognition")
 
-    # Load dữ liệu khuôn mặt và nhãn
     faces, labels = load_data()
 
     if faces.size == 0 or len(labels) == 0:
@@ -176,7 +173,6 @@ def display_face_recognition():
     detected_names = {}
     attendance_data = []
 
-    # Sử dụng WebRTC để truy cập camera và xử lý video
     webrtc_streamer(
         key="face-recognition",
         video_transformer_factory=lambda: FaceDetectionTransformer(
@@ -190,61 +186,21 @@ def view_attendance():
     csv_file_path = os.path.join(os.getcwd(), 'attendance.csv')
     if os.path.exists(csv_file_path):
         df = pd.read_csv(csv_file_path)
-        st.dataframe(df)
-
-        # Provide download option
-        st.download_button(
-            label="Download Attendance CSV",
-            data=df.to_csv(index=False).encode('utf-8'),
-            file_name='attendance.csv',
-            mime='text/csv'
-        )
+        st.write(df)
     else:
-        st.warning("No attendance data available!")
-
-
-def admin_mode():
-    st.header("Admin Panel")
-
-    action = st.selectbox("Choose an action:", [
-        "Collect Data from Camera", "Upload Multiple Images", "Export Attendance", "View Attendance"])
-
-    if action == "Collect Data from Camera":
-        st.write("Collecting face data from camera...")
-        collect_data_from_camera()
-    elif action == "Upload Multiple Images":
-        st.write("Uploading and processing images...")
-        uploaded_files = st.file_uploader("Choose image files", type=[
-                                          "jpg", "jpeg", "png"], accept_multiple_files=True)
-        if uploaded_files:
-            images = [Image.open(uploaded_file)
-                      for uploaded_file in uploaded_files]
-            faces, labels = load_data_from_images(images)
-            save_face_data(faces, labels)
-    elif action == "Export Attendance":
-        st.write("Exporting attendance data...")
-        view_attendance()
-    elif action == "View Attendance":
-        st.write("Viewing attendance data...")
-        view_attendance()
+        st.write("No attendance data available")
 
 
 def main():
-    st.title("Face Recognition System")
+    st.title("Face Recognition and Attendance System")
 
-    if st.sidebar.checkbox("Login"):
-        username = st.sidebar.text_input("Username")
-        password = st.sidebar.text_input("Password", type="password")
-        if check_login(username, password):
-            st.sidebar.success("Logged in successfully")
-            action = st.sidebar.radio("Choose an action:", [
-                                      "Face Recognition", "Admin Panel"])
-            if action == "Face Recognition":
-                display_face_recognition()
-            elif action == "Admin Panel":
-                admin_mode()
-        else:
-            st.sidebar.error("Invalid username or password")
+    menu = ["Face Recognition", "View Attendance"]
+    choice = st.sidebar.selectbox("Select Option", menu)
+
+    if choice == "Face Recognition":
+        display_face_recognition()
+    elif choice == "View Attendance":
+        view_attendance()
 
 
 if __name__ == "__main__":
