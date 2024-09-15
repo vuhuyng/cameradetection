@@ -1,94 +1,95 @@
 import cv2
 import numpy as np
-import os
-import io
-from PIL import Image
 import pickle
-
-FACE_DIM = (50, 50)  # Define a consistent face dimension
+import os
+from PIL import Image
 
 
 def collect_data_from_camera():
-    # Initialize camera
-    camera = cv2.VideoCapture(0)
-    face_data = []
-    facecascade = cv2.CascadeClassifier(
+    # Khởi tạo camera
+    cap = cv2.VideoCapture(0)
+    face_cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-    # Create a window to display the video feed
-    cv2.namedWindow("Collecting Face Data", cv2.WINDOW_NORMAL)
+    data = []
+    collected_data = False
 
-    while True:
-        ret, frame = camera.read()
+    while not collected_data:
+        ret, frame = cap.read()
         if not ret:
-            print("Failed to grab frame")
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = facecascade.detectMultiScale(gray, 1.3, 5)
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
         for (x, y, w, h) in faces:
             face = frame[y:y + h, x:x + w]
-            face = cv2.resize(face, FACE_DIM)
-            face_data.append(face.flatten())  # Flatten the face data
+            face = cv2.resize(face, (50, 50)).flatten()
+            data.append(face)
 
-        # Show the frame
-        cv2.imshow("Collecting Face Data", frame)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-        # Stop if ESC key is pressed
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC key
-            break
+        cv2.imshow('Collecting Face Data', frame)
+        key = cv2.waitKey(1)
 
-    # Release resources and close windows
-    camera.release()
+        if key == ord('q'):
+            collected_data = True
+
+    cap.release()
     cv2.destroyAllWindows()
 
-    return np.array(face_data)
+    # Save collected data
+    if len(data) > 0:
+        faces_file_path = os.path.join(os.getcwd(), 'faces.pkl')
+        names_file_path = os.path.join(os.getcwd(), 'names.pkl')
+
+        if os.path.exists(faces_file_path):
+            with open(faces_file_path, 'rb') as f:
+                faces = pickle.load(f)
+            faces = np.vstack((faces, np.array(data)))
+        else:
+            faces = np.array(data)
+
+        with open(faces_file_path, 'wb') as f:
+            pickle.dump(faces, f)
+
+        st.success("Data collected successfully!")
+    else:
+        st.warning("No data collected.")
 
 
 def save_face_data(faces, labels):
     faces_file_path = os.path.join(os.getcwd(), 'faces.pkl')
     names_file_path = os.path.join(os.getcwd(), 'names.pkl')
 
-    # Load existing data if available
-    if os.path.exists(faces_file_path):
-        with open(faces_file_path, 'rb') as f:
-            existing_faces = pickle.load(f)
-    else:
-        existing_faces = np.empty((0, faces.shape[1]))
-
-    if os.path.exists(names_file_path):
-        with open(names_file_path, 'rb') as f:
-            existing_labels = pickle.load(f)
-    else:
-        existing_labels = []
-
-    # Append new data
-    faces = np.vstack([existing_faces, faces])
-    labels += existing_labels
-
-    # Save updated data
     with open(faces_file_path, 'wb') as f:
         pickle.dump(faces, f)
-
     with open(names_file_path, 'wb') as f:
         pickle.dump(labels, f)
 
 
-def load_data_from_images(image_stream):
-    image = Image.open(image_stream).convert('RGB')
-    image_array = np.array(image)
+def load_data_from_images(images):
+    faces = []
+    labels = []
+    for img in images:
+        img = np.array(img)
+        face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        detected_faces = face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5)
 
-    # Assume face detection is done here and we have faces extracted
-    # For demonstration, resizing face data to a fixed size
-    face_data = []
-    # Placeholder for actual face detection and processing
-    # Example for resizing face data
-    face = cv2.resize(image_array, (50, 50))  # Adjust the size if needed
-    face_data.append(face.flatten())
+        for (x, y, w, h) in detected_faces:
+            face = img[y:y + h, x:x + w]
+            face = cv2.resize(face, (50, 50)).flatten()
+            faces.append(face)
+            labels.append("Unknown")
 
-    face_data = np.array(face_data)
-    # Example name, replace with actual name if available
-    names = ['DummyName']
-    return face_data, names
+    if len(faces) > 0:
+        faces = np.array(faces)
+        labels = np.array(labels)
+    else:
+        faces = np.empty((0, 2500))
+        labels = []
+
+    return faces, labels
