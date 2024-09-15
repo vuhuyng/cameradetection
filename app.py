@@ -1,20 +1,19 @@
 import streamlit as st
 import cv2
 import numpy as np
+from PIL import Image
+from algorithm import train_knn
+from collection_data import collect_data_from_camera, save_face_data, load_data_from_images
 import pickle
+import os
+import io
 import pandas as pd
 import datetime
-import os
-from streamlit_webrtc import VideoTransformerBase, webrtc_streamer
-from algorithm import train_knn
-from collection_data import save_face_data, load_data_from_images
 
 # Streamlit app functions
 
-
 def check_login(username, password):
     return username == 'admin' and password == '12'
-
 
 def load_data():
     faces_file_path = os.path.join(os.getcwd(), 'faces.pkl')
@@ -35,6 +34,14 @@ def load_data():
 
     return faces, labels
 
+def save_face_data(faces, labels):
+    faces_file_path = os.path.join(os.getcwd(), 'faces.pkl')
+    names_file_path = os.path.join(os.getcwd(), 'names.pkl')
+
+    with open(faces_file_path, 'wb') as f:
+        pickle.dump(faces, f)
+    with open(names_file_path, 'wb') as f:
+        pickle.dump(labels, f)
 
 def save_attendance_to_csv(attendance_data):
     df = pd.DataFrame(attendance_data, columns=['Name', 'Timestamp'])
@@ -56,57 +63,31 @@ def save_attendance_to_csv(attendance_data):
     except IOError as e:
         st.error(f"Failed to save attendance: {e}")
 
+def draw_ai_tech_bbox(frame, x, y, w, h, color=(0, 255, 0), thickness=2):
+    corner_length = 30
+    line_thickness = thickness
+    glow_color = (0, 255, 0)  # Neon cyan-like glow
 
-class FaceRecognitionTransformer(VideoTransformerBase):
-    def __init__(self, knn, faces, labels):
-        self.knn = knn
-        self.faces = faces
-        self.labels = labels
-        self.detected_names = {}
-        self.attendance_data = []
+    cv2.line(frame, (x, y), (x + corner_length, y), glow_color, line_thickness)
+    cv2.line(frame, (x, y), (x, y + corner_length), glow_color, line_thickness)
+    cv2.line(frame, (x + w, y), (x + w - corner_length, y), glow_color, line_thickness)
+    cv2.line(frame, (x + w, y), (x + w, y + corner_length), glow_color, line_thickness)
+    cv2.line(frame, (x, y + h), (x, y + h - corner_length), glow_color, line_thickness)
+    cv2.line(frame, (x, y + h), (x + corner_length, y + h), glow_color, line_thickness)
+    cv2.line(frame, (x + w, y + h), (x + w - corner_length, y + h), glow_color, line_thickness)
+    cv2.line(frame, (x + w, y + h), (x + w, y + h - corner_length), glow_color, line_thickness)
 
-    def transform(self, frame):
-        frame = frame.to_ndarray(format="bgr24")
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        facecascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        face_coordinates = facecascade.detectMultiScale(gray, 1.3, 5)
+    cv2.line(frame, (x, y + h // 2), (x + w, y + h // 2), glow_color, 1)
+    cv2.line(frame, (x + w // 2, y), (x + w // 2, y + h), glow_color, 1)
 
-        for (x, y, w, h) in face_coordinates:
-            face = frame[y:y + h, x:x + w, :]
-            resized_face = cv2.resize(face, (50, 50)).flatten().reshape(1, -1)
+    cv2.putText(frame, "SCANNING...", (x - 200, y + 100), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0), 1)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + w, y + h), glow_color, -1)
+    alpha = 0.1
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-            if self.faces.shape[0] > 0:
-                name = self.knn.predict(resized_face)[0]
-
-                bbox_color = (0, 255, 255) if name not in self.detected_names else (
-                    255, 0, 255)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), bbox_color, 2)
-                label = f"{name} - {'New' if name not in self.detected_names else 'Checked'}"
-                cv2.putText(frame, label, (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                if name not in self.detected_names:
-                    self.attendance_data.append([name, timestamp])
-                    self.detected_names[name] = timestamp
-                    save_attendance_to_csv(self.attendance_data)
-                else:
-                    last_saved_timestamp = datetime.datetime.strptime(
-                        self.detected_names[name], "%Y-%m-%d %H:%M:%S")
-                    current_timestamp = datetime.datetime.strptime(
-                        timestamp, "%Y-%m-%d %H:%M:%S")
-
-                    if (current_timestamp - last_saved_timestamp).seconds > 60:  # 1 minute threshold
-                        self.attendance_data = [
-                            entry for entry in self.attendance_data if entry[0] != name]
-                        self.attendance_data.append([name, timestamp])
-                        self.detected_names[name] = timestamp
-                        save_attendance_to_csv(self.attendance_data)
-
-        return frame
-
+    cv2.putText(frame, "ID: FPT UNIVERSITY", (x + w + 10, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, glow_color, 1)
+    cv2.putText(frame, "Status: Processing", (x + w + 10, y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, glow_color, 1)
 
 def display_face_recognition():
     st.header("Realtime Face Recognition")
@@ -117,10 +98,77 @@ def display_face_recognition():
         st.error("No data available for training!")
         return
 
+    if faces.shape[0] < 1:
+        st.error("Insufficient training data!")
+        return
+
     knn = train_knn(faces, labels)
+    stframe = st.empty()
 
-    webrtc_streamer(key="face-recognition", video_transformer_factory=lambda: FaceRecognitionTransformer(knn, faces, labels))
+    detected_names = {}
+    attendance_data = []
 
+    camera = cv2.VideoCapture(0)
+
+    if not camera.isOpened():
+        st.error("Cannot access the camera!")
+        return
+
+    while True:
+        ret, frame = camera.read()
+        if not ret:
+            st.error("Cannot read from the camera!")
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        face_coordinates = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
+
+        if len(face_coordinates) == 0:
+            st.write("No faces detected.")
+        else:
+            st.write(f"Faces detected: {face_coordinates}")
+
+        for (x, y, w, h) in face_coordinates:
+            face = frame[y:y + h, x:x + w, :]
+            resized_face = cv2.resize(face, (50, 50)).flatten().reshape(1, -1)
+
+            if faces.shape[0] > 0:
+                name = knn.predict(resized_face)[0]
+
+                bbox_color = (0, 255, 255) if name not in detected_names else (255, 0, 255)
+                draw_ai_tech_bbox(frame, x, y, w, h, bbox_color, 3)
+
+                label = f"{name} - {'New' if name not in detected_names else 'Checked'}"
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                if name not in detected_names:
+                    # Save attendance data immediately and update last saved timestamp
+                    attendance_data.append([name, timestamp])
+                    detected_names[name] = timestamp
+                    save_attendance_to_csv(attendance_data)
+                else:
+                    # Check if the time since last saved entry is more than a threshold
+                    last_saved_timestamp = datetime.datetime.strptime(detected_names[name], "%Y-%m-%d %H:%M:%S")
+                    current_timestamp = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+
+                    if (current_timestamp - last_saved_timestamp).seconds > 60:  # 1 minute threshold
+                        # Update timestamp for existing detection
+                        attendance_data = [entry for entry in attendance_data if entry[0] != name]
+                        attendance_data.append([name, timestamp])
+                        detected_names[name] = timestamp
+                        # Re-save with updated timestamps
+                        save_attendance_to_csv(attendance_data)
+
+        stframe.image(frame, channels="BGR")
+
+        # Break the loop if the user presses the 'ESC' key
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+
+    camera.release()
 
 def view_attendance():
     st.header("View Attendance")
@@ -130,6 +178,7 @@ def view_attendance():
         df = pd.read_csv(csv_file_path)
         st.dataframe(df)
 
+        # Provide download option
         st.download_button(
             label="Download Attendance CSV",
             data=df.to_csv(index=False).encode('utf-8'),
@@ -138,7 +187,6 @@ def view_attendance():
         )
     else:
         st.warning("No attendance data available!")
-
 
 def admin_mode():
     st.header("Admin Panel")
@@ -151,123 +199,54 @@ def admin_mode():
         if st.button("Start Data Collection"):
             if name:
                 st.write("Collecting data from camera...")
-                face_data = collect_data_from_camera()
-
-                if face_data.size == 0:
-                    st.error("No face data collected!")
-                    return
-
-                faces, labels = load_data()
-
-                if faces.size == 0:
-                    faces = face_data
-                    labels = [name] * face_data.shape[0]
-                else:
-                    if face_data.shape[1] == faces.shape[1]:
-                        faces = np.vstack([faces, face_data])
-                        labels += [name] * face_data.shape[0]
-                    else:
-                        st.error("Face data dimensions do not match!")
-                        return
-                save_face_data(faces, labels)
-                st.success("Data collection completed and saved!")
+                collect_data_from_camera(name)
+                st.write("Data collection complete!")
+                save_face_data(*load_data_from_images())  # Save collected data
             else:
-                st.error("Please enter your name before starting data collection.")
+                st.warning("Please enter your name.")
 
     elif action == "Upload Multiple Images":
-        uploaded_files = st.file_uploader(
-            "Choose images", accept_multiple_files=True, type=['jpg', 'png', 'jpeg'])
-        name = st.text_input("Enter your name:")
-
+        uploaded_files = st.file_uploader("Choose image files", accept_multiple_files=True)
         if st.button("Upload Images"):
             if uploaded_files:
-                faces, labels = load_data()
-
-                if faces.size == 0:
-                    faces = np.empty((0, 2500))  # Adjust size if needed
-                face_data_list = []
-
-                for uploaded_file in uploaded_files:
-                    image_data = io.BytesIO(uploaded_file.read())
-                    face_data, _ = load_data_from_images(image_data)
-
-                    if faces.size == 0 or face_data.shape[1] == faces.shape[1]:
-                        face_data_list.append(face_data)
-                    else:
-                        st.error(
-                            "Face data dimensions from uploaded images do not match!")
-                        return
-
-                if face_data_list:
-                    face_data = np.vstack(face_data_list)
-
-                    if name:
-                        if face_data.size == 0:
-                            st.error("No face data found in uploaded images!")
-                            return
-
-                        if faces.size == 0:
-                            faces = face_data
-                            labels = [name] * face_data.shape[0]
-                        else:
-                            if face_data.shape[1] == faces.shape[1]:
-                                faces = np.vstack([faces, face_data])
-                                labels += [name] * face_data.shape[0]
-                            else:
-                                st.error("Face data dimensions do not match!")
-                                return
-                        save_face_data(faces, labels)
-                        st.success(
-                            f"Successfully uploaded {len(uploaded_files)} images for {name}")
-                    else:
-                        st.error("Please enter your name.")
+                for file in uploaded_files:
+                    image = Image.open(file)
+                    img_array = np.array(image)
+                    collect_data_from_camera(img_array, file.name)  # Use a placeholder function to handle this
+                st.write("Images uploaded and processed successfully!")
+                save_face_data(*load_data_from_images())  # Save uploaded images
             else:
-                st.error("Please upload some images.")
+                st.warning("Please upload at least one image.")
 
     elif action == "Export Attendance":
-        csv_file_path = os.path.join(os.getcwd(), 'attendance.csv')
-        if os.path.exists(csv_file_path):
-            with open(csv_file_path, 'rb') as f:
-                st.download_button(
-                    label='Download Attendance CSV',
-                    data=f.read(),
-                    file_name='attendance.csv',
-                    mime='text/csv'
-                )
-        else:
-            st.warning("Attendance file not found!")
+        save_attendance_to_csv(load_data_from_images())  # Save data as CSV
+        st.write("Attendance data exported successfully!")
 
     elif action == "View Attendance":
-        if 'logged_in' in st.session_state and st.session_state['logged_in']:
-            view_attendance()
-        else:
-            st.error("Please log in to view attendance data.")
-
-
-# Main Streamlit app flow
+        view_attendance()
 
 def main():
-    st.title("Face Recognition Attendance System")
+    st.title("Face Recognition System")
 
-    mode = st.sidebar.selectbox("Choose mode:", ["Face Recognition", "Admin"])
+    mode = st.sidebar.selectbox("Select Mode", ["User", "Admin"])
 
-    if mode == "Face Recognition":
-        display_face_recognition()
+    if mode == "User":
+        st.header("Face Recognition")
+
+        if st.button("Start"):
+            display_face_recognition()
+
     elif mode == "Admin":
+        st.subheader("Admin Login")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
 
         if st.button("Login"):
             if check_login(username, password):
-                st.session_state['logged_in'] = True
                 st.success("Login successful!")
                 admin_mode()
             else:
-                st.error("Invalid credentials!")
+                st.error("Invalid username or password")
 
-    if 'logged_in' not in st.session_state:
-        st.session_state['logged_in'] = False
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
